@@ -24,7 +24,7 @@ class Network(nn.Module):
         q_vallues = self.fc2(x)
         return q_vallues
     
-    class ReplayMemory():
+class ReplayMemory():
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
@@ -34,14 +34,10 @@ class Network(nn.Module):
         if len(self.memory) > self.capacity:
             del self.memory[0]
 
-    def sample(self, batch_size):
-        #samples = zip(*self.memory)
-        #return map(lambda x: Variable(torch.cat(x, 0)), samples)
-        samples = zip(*random.sample(self.memory, batch_size))
-        return map(lambda x: Variable(torch.cat(x, 0)), samples)
+    def sample(self, batch_size_g):
+        return self.memory[0:batch_size_g]
     
-    
-    class Dqn():
+class Dqn():
     def __init__(self, input_size, nb_actions, gamma):
         self.gamma = gamma
         self.input_size = input_size
@@ -77,27 +73,41 @@ class Network(nn.Module):
         #É o estado atual que for recebido pelo cenario, só está sendo feita a conversão do dado 
         new_state = torch.Tensor(new_signal).float().unsqueeze(0)
         #Grava na memoria
-        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)]),
-                     torch.Tensor([self.last_reward])))
+        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)])))
         #Define a próxima ação
         action = self.select_action(new_state)
-        #Cria batches a partir dos dados que já estão na memoria e roda a função para aprender
-        if len(self.memory.memory) > 100:
-            #batch_state, batch_next_state, batch_action = self.memory.sample()
-            #deslocamento = []
-            #for indice, valor in enumerate(amostra[0:data_size-batch_size+1]):
-            #    state.append(valor)
-            #    for i in amostra[indice+1:indice+101]:
-            #        if i[0] > state[indice][0]+5:
-            #            deslocamento.append(1)
-            #            break
-            #        elif i[0] < state[indice][0]-5:
-            #            deslocamento.append(-1)
-            #        break
-            #batch_reward = 
-            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(100)
 
-            self.learn(batch_state, batch_next_state, batch_reward, batch_action)
+        batch_size_p = 60
+        batch_size_g = 100
+        #Se a memória já tiver o tamanho definido de dados, começa a separar os dados em batches
+        if len(self.memory.memory) > batch_size_g:
+            batch_g = self.memory.sample(batch_size_g)
+            batch = self.memory.memory[0:batch_size_p]
+            batch_state, batch_next_state, batch_action = zip(*batch)
+            
+            #Usa os dados mais a frente para definir se o preço vai subir ou descer e armazenar na lista deslocamento
+            deslocamento = []
+            for indice, valor in enumerate(batch_g[0:batch_size_p]):
+                for i in batch_g[indice+1:indice+(batch_size_g-batch_size_p)]:
+                    if i[0][0] - valor[0][0] > 5:
+                        deslocamento.append(1)
+                        break
+                    elif valor[0][0] - i[0][0] > 5:
+                        deslocamento.append(-1)
+                        break
+            
+            #Define a recompensa. Se a ação foi igual ao lado que o preço se deslocou, a recompensa é 1, se foi o lado oposto, -1 e se não houve deslocamento, 0
+            batch_reward = []
+            for indice, valor in enumerate(deslocamento):
+                x = batch_action[indice]*deslocamento[indice]
+                if x>0:
+                    batch_reward.append(1)
+                elif x<0:
+                    batch_reward.append(-1)
+                else: batch_reward.append(0) 
+            batch_reward = torch.FloatTensor(batch_reward)
+
+        self.learn(batch_state, batch_next_state, batch_reward, batch_action)
         #Atualiza cada dado anterior com seu novo valor
         self.last_action = action
         self.last_state = new_state
@@ -107,3 +117,5 @@ class Network(nn.Module):
         if len(self.reward_window) > 1000:
             del self.reward_window[0]
         return action
+    
+    
